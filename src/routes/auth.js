@@ -93,14 +93,25 @@ router.post('/register', async (req, res) => {
   }
   try {
     const passwordHash = await bcrypt.hash(password, 12);
-    // Generar company_code único de 6 caracteres
+
+    // Generar company_code desde iniciales del nombre de empresa
+    // Ignora palabras genéricas (SpA, SPA, Ltda, S.A., etc.)
+    const STOP_WORDS = new Set(['SPA', 'LTDA', 'SA', 'EIRL', 'SRL', 'Y', 'DE', 'DEL', 'LA', 'LAS', 'LOS', 'EL']);
+    const initials = name
+      .toUpperCase()
+      .replace(/[^A-ZÁÉÍÓÚÑ\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 0 && !STOP_WORDS.has(w))
+      .map(w => w[0])
+      .join('');
+    const base = initials.length >= 2 ? initials.slice(0, 4) : name.replace(/\s/g, '').toUpperCase().slice(0, 4);
+
+    // Buscar sufijo numérico para garantizar unicidad
     let companyCode;
-    let attempts = 0;
-    while (attempts < 10) {
-      const candidate = Math.random().toString(36).substring(2, 8).toUpperCase();
+    for (let i = 0; i <= 99; i++) {
+      const candidate = i === 0 ? base : `${base}${i}`;
       const { rows } = await pool.query('SELECT id FROM companies WHERE company_code = $1', [candidate]);
       if (!rows[0]) { companyCode = candidate; break; }
-      attempts++;
     }
     if (!companyCode) return res.status(500).json({ error: 'No se pudo generar código único' });
 

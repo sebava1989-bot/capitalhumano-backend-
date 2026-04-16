@@ -42,6 +42,28 @@ router.get('/stats', verifyAdmin, async (req, res) => {
   }
 });
 
+// PUT /api/dashboard/company-code — cambiar código de empresa
+router.put('/company-code', verifyAdmin, async (req, res) => {
+  const { companyCode } = req.body;
+  if (!companyCode) return res.status(400).json({ error: 'companyCode requerido' });
+  const clean = companyCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (clean.length < 2 || clean.length > 8) {
+    return res.status(400).json({ error: 'El código debe tener entre 2 y 8 caracteres (solo letras y números)' });
+  }
+  try {
+    const existing = await pool.query(
+      'SELECT id FROM companies WHERE company_code = $1 AND id != $2',
+      [clean, req.companyId]
+    );
+    if (existing.rows[0]) return res.status(409).json({ error: 'Ese código ya está en uso por otra empresa' });
+    await pool.query('UPDATE companies SET company_code = $1 WHERE id = $2', [clean, req.companyId]);
+    res.json({ ok: true, companyCode: clean });
+  } catch (err) {
+    console.error('[dashboard] company-code error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // PUT /api/dashboard/logo — logo como base64 en DB
 router.put('/logo', verifyAdmin, async (req, res) => {
   const { logoBase64 } = req.body;
