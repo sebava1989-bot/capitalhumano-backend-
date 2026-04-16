@@ -52,6 +52,40 @@ router.put('/:id', verifyAdmin, async (req, res) => {
   }
 });
 
+// POST /api/workers/:id/finiquito — finiquitar trabajador
+router.post('/:id/finiquito', verifyAdmin, async (req, res) => {
+  const { endDate, terminationReason } = req.body;
+  if (!endDate) return res.status(400).json({ error: 'Fecha de término requerida' });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE workers SET active = false, end_date = $1, termination_reason = $2
+       WHERE id = $3 AND company_id = $4
+       RETURNING id, rut, full_name, position, end_date, termination_reason`,
+      [endDate, terminationReason || null, req.params.id, req.companyId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('[workers] finiquito error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/workers/finiquitados — trabajadores inactivos con sus documentos
+router.get('/finiquitados/list', verifyAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, rut, full_name, email, position, start_date, end_date, termination_reason, created_at
+       FROM workers WHERE company_id = $1 AND active = false
+       ORDER BY end_date DESC NULLS LAST, full_name`,
+      [req.companyId]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // Obtener trabajador por ID
 router.get('/:id', verifyAdmin, async (req, res) => {
   try {

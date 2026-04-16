@@ -11,6 +11,8 @@ async function migrate() {
     `ALTER TABLE companies ADD COLUMN IF NOT EXISTS admin_signature_url TEXT`,
     `ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_url TEXT`,
     `ALTER TABLE companies ALTER COLUMN plan SET DEFAULT 'freemium'`,
+    `ALTER TABLE workers ADD COLUMN IF NOT EXISTS end_date DATE`,
+    `ALTER TABLE workers ADD COLUMN IF NOT EXISTS termination_reason TEXT`,
     `CREATE TABLE IF NOT EXISTS certificates (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
