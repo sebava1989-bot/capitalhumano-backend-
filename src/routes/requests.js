@@ -8,23 +8,21 @@ const router = Router();
 router.post('/', verifyWorker, async (req, res) => {
   const { type, details, amount } = req.body;
   if (!type) return res.status(400).json({ error: 'Tipo de solicitud requerido' });
-
-  if (type === 'anticipo') {
-    const amt = parseFloat(amount);
-    if (!amount || isNaN(amt) || amt <= 0) {
-      return res.status(400).json({ error: 'Monto requerido para anticipo' });
-    }
-    const { rows: compRows } = await pool.query(
-      'SELECT max_advance_amount FROM companies WHERE id=$1',
-      [req.companyId]
-    );
-    const maxAmt = parseFloat(compRows[0]?.max_advance_amount || 0);
-    if (maxAmt > 0 && amt > maxAmt) {
-      return res.status(400).json({ error: `El monto supera el máximo permitido de $${maxAmt.toLocaleString('es-CL')}` });
-    }
-  }
-
   try {
+    if (type === 'anticipo') {
+      const amt = parseFloat(amount);
+      if (!amount || isNaN(amt) || amt <= 0) {
+        return res.status(400).json({ error: 'Monto requerido para anticipo' });
+      }
+      const { rows: compRows } = await pool.query(
+        'SELECT max_advance_amount FROM companies WHERE id=$1',
+        [req.companyId]
+      );
+      const maxAmt = parseFloat(compRows[0]?.max_advance_amount || 0);
+      if (maxAmt > 0 && amt > maxAmt) {
+        return res.status(400).json({ error: `El monto supera el máximo permitido de $${maxAmt.toLocaleString('es-CL')}` });
+      }
+    }
     const { rows } = await pool.query(
       `INSERT INTO requests (company_id, worker_id, type, details, amount)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
@@ -32,6 +30,7 @@ router.post('/', verifyWorker, async (req, res) => {
     );
     res.status(201).json(rows[0]);
   } catch (err) {
+    console.error('[requests] post error:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });
