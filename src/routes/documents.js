@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
+import jwt from 'jsonwebtoken';
 import pool from '../db/pool.js';
 import { verifyAdmin, verifyWorker } from '../middleware/auth.js';
 import { uploadBuffer, deleteFile, cloudinary } from '../utils/cloudinary.js';
@@ -85,27 +86,49 @@ router.get('/mine', verifyWorker, async (req, res) => {
   }
 });
 
-// GET /api/documents/:id/signed-url — URL firmada para ver el PDF
+// GET /api/documents/:id/signed-url — devuelve URL de descarga temporal vía proxy
 router.get('/:id/signed-url', verifyAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT file_url FROM documents WHERE id=$1 AND company_id=$2',
+      'SELECT id FROM documents WHERE id=$1 AND company_id=$2',
       [req.params.id, req.companyId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Documento no encontrado' });
 
-    const match = rows[0].file_url.match(/\/raw\/upload\/v\d+\/(.+)$/);
-    if (!match) return res.status(400).json({ error: 'URL de documento inválida' });
-
-    const signedUrl = cloudinary.url(match[1], {
-      resource_type: 'raw',
-      type: 'upload',
-      sign_url: true,
-    });
-
-    res.json({ url: signedUrl });
+    const token = jwt.sign({ docId: req.params.id }, process.env.JWT_SECRET, { expiresIn: '10m' });
+    const base = process.env.API_BASE_URL || 'https://brilliant-love-production.up.railway.app';
+    res.json({ url: `${base}/api/documents/${req.params.id}/file?t=${token}` });
   } catch (err) {
     res.status(500).json({ error: 'Error al generar URL' });
+  }
+});
+
+// GET /api/documents/:id/file?t=TOKEN — proxy del PDF desde Cloudinary (sin JWT, usa token temporal)
+router.get('/:id/file', async (req, res) => {
+  try {
+    const payload = jwt.verify(req.query.t, process.env.JWT_SECRET);
+    if (payload.docId !== req.params.id) throw new Error('mismatch');
+
+    const { rows } = await pool.query('SELECT file_url, name FROM documents WHERE id=$1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'No encontrado' });
+
+    const match = rows[0].file_url.match(/\/raw\/upload\/v\d+\/(.+)$/);
+    if (!match) return res.status(400).json({ error: 'URL inválida' });
+
+    const downloadUrl = cloudinary.utils.private_download_url(match[1], 'pdf', {
+      resource_type: 'raw',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    });
+
+    const upstream = await fetch(downloadUrl);
+    if (!upstream.ok) return res.status(502).json({ error: 'Error al obtener archivo de Cloudinary' });
+
+    const safeName = rows[0].name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'documento';
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `inline; filename="${safeName}.pdf"`);
+    upstream.body.pipe(res);
+  } catch (err) {
+    res.status(401).json({ error: 'Token inválido o expirado' });
   }
 });
 
