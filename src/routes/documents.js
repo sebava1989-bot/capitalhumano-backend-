@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import pool from '../db/pool.js';
 import { verifyAdmin, verifyWorker } from '../middleware/auth.js';
-import { uploadBuffer, deleteFile } from '../utils/cloudinary.js';
+import { uploadBuffer, deleteFile, cloudinary } from '../utils/cloudinary.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -25,6 +25,8 @@ router.post('/upload', verifyAdmin, upload.single('file'), async (req, res) => {
       folder: `capitalhumano/${req.companyId}/documents`,
       public_id: `${type}_${workerId}_${Date.now()}`,
       format: 'pdf',
+      access_mode: 'public',
+      type: 'upload',
     });
 
     const { rows } = await pool.query(
@@ -80,6 +82,30 @@ router.get('/mine', verifyWorker, async (req, res) => {
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/documents/:id/signed-url — URL firmada para ver el PDF
+router.get('/:id/signed-url', verifyAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT file_url FROM documents WHERE id=$1 AND company_id=$2',
+      [req.params.id, req.companyId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Documento no encontrado' });
+
+    const match = rows[0].file_url.match(/\/raw\/upload\/v\d+\/(.+)$/);
+    if (!match) return res.status(400).json({ error: 'URL de documento inválida' });
+
+    const signedUrl = cloudinary.url(match[1], {
+      resource_type: 'raw',
+      type: 'upload',
+      sign_url: true,
+    });
+
+    res.json({ url: signedUrl });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al generar URL' });
   }
 });
 
