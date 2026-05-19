@@ -205,6 +205,10 @@ router.post('/request', verifyWorker, async (req, res) => {
 // GET /api/certificates/worker/:workerId — certificados de un trabajador (admin)
 router.get('/worker/:workerId', verifyAdmin, async (req, res) => {
   try {
+    await pool.query(
+      "DELETE FROM certificates WHERE worker_id=$1 AND company_id=$2 AND generated_at < NOW() - INTERVAL '24 hours'",
+      [req.params.workerId, req.companyId]
+    );
     const { rows } = await pool.query(
       'SELECT * FROM certificates WHERE worker_id=$1 AND company_id=$2 ORDER BY generated_at DESC',
       [req.params.workerId, req.companyId]
@@ -218,6 +222,10 @@ router.get('/worker/:workerId', verifyAdmin, async (req, res) => {
 // GET /api/certificates/mine — mis certificados (trabajador)
 router.get('/mine', verifyWorker, async (req, res) => {
   try {
+    await pool.query(
+      "DELETE FROM certificates WHERE worker_id=$1 AND company_id=$2 AND generated_at < NOW() - INTERVAL '24 hours'",
+      [req.workerId, req.companyId]
+    );
     const { rows } = await pool.query(
       'SELECT * FROM certificates WHERE worker_id=$1 AND company_id=$2 ORDER BY generated_at DESC',
       [req.workerId, req.companyId]
