@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import multer from 'multer';
-import jwt from 'jsonwebtoken';
 import pool from '../db/pool.js';
 import { verifyAdmin, verifyWorker } from '../middleware/auth.js';
 import { uploadBuffer, deleteFile, cloudinary } from '../utils/cloudinary.js';
@@ -86,53 +85,17 @@ router.get('/mine', verifyWorker, async (req, res) => {
   }
 });
 
-// GET /api/documents/:id/signed-url — devuelve URL de descarga temporal vía proxy
+// GET /api/documents/:id/signed-url — devuelve la URL directa de Cloudinary
 router.get('/:id/signed-url', verifyAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id FROM documents WHERE id=$1 AND company_id=$2',
+      'SELECT file_url FROM documents WHERE id=$1 AND company_id=$2',
       [req.params.id, req.companyId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Documento no encontrado' });
-
-    const token = jwt.sign({ docId: req.params.id }, process.env.JWT_SECRET, { expiresIn: '10m' });
-    const base = process.env.API_BASE_URL || 'https://brilliant-love-production.up.railway.app';
-    res.json({ url: `${base}/api/documents/${req.params.id}/file?t=${token}` });
+    res.json({ url: rows[0].file_url });
   } catch (err) {
     res.status(500).json({ error: 'Error al generar URL' });
-  }
-});
-
-// GET /api/documents/:id/file?t=TOKEN — proxy del PDF desde Cloudinary (sin JWT, usa token temporal)
-router.get('/:id/file', async (req, res) => {
-  try {
-    const payload = jwt.verify(req.query.t, process.env.JWT_SECRET);
-    if (payload.docId !== req.params.id) throw new Error('mismatch');
-
-    const { rows } = await pool.query('SELECT file_url, name FROM documents WHERE id=$1', [req.params.id]);
-    if (!rows[0]) return res.status(404).json({ error: 'No encontrado' });
-
-    const match = rows[0].file_url.match(/\/raw\/upload\/v\d+\/(.+)$/);
-    if (!match) return res.status(400).json({ error: 'URL inválida' });
-
-    const signedUrl = cloudinary.url(match[1], {
-      resource_type: 'raw',
-      type: 'upload',
-      sign_url: true,
-      secure: true,
-    });
-
-    console.log('[documents/file] fetching:', signedUrl);
-    const upstream = await fetch(signedUrl);
-    console.log('[documents/file] cloudinary status:', upstream.status);
-    if (!upstream.ok) return res.status(502).json({ error: `Cloudinary ${upstream.status}` });
-
-    const safeName = rows[0].name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'documento';
-    res.set('Content-Type', 'application/pdf');
-    res.set('Content-Disposition', `inline; filename="${safeName}.pdf"`);
-    upstream.body.pipe(res);
-  } catch (err) {
-    res.status(401).json({ error: 'Token inválido o expirado' });
   }
 });
 
