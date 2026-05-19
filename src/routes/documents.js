@@ -115,13 +115,17 @@ router.get('/:id/file', async (req, res) => {
     const match = rows[0].file_url.match(/\/raw\/upload\/v\d+\/(.+)$/);
     if (!match) return res.status(400).json({ error: 'URL inválida' });
 
-    const downloadUrl = cloudinary.utils.private_download_url(match[1], 'pdf', {
+    const signedUrl = cloudinary.url(match[1], {
       resource_type: 'raw',
-      expires_at: Math.floor(Date.now() / 1000) + 300,
+      type: 'upload',
+      sign_url: true,
+      secure: true,
     });
 
-    const upstream = await fetch(downloadUrl);
-    if (!upstream.ok) return res.status(502).json({ error: 'Error al obtener archivo de Cloudinary' });
+    console.log('[documents/file] fetching:', signedUrl);
+    const upstream = await fetch(signedUrl);
+    console.log('[documents/file] cloudinary status:', upstream.status);
+    if (!upstream.ok) return res.status(502).json({ error: `Cloudinary ${upstream.status}` });
 
     const safeName = rows[0].name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'documento';
     res.set('Content-Type', 'application/pdf');
