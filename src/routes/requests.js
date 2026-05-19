@@ -6,15 +6,44 @@ const router = Router();
 
 // Crear solicitud (trabajador)
 router.post('/', verifyWorker, async (req, res) => {
-  const { type, details } = req.body;
+  const { type, details, amount } = req.body;
   if (!type) return res.status(400).json({ error: 'Tipo de solicitud requerido' });
+
+  if (type === 'anticipo') {
+    const amt = parseFloat(amount);
+    if (!amount || isNaN(amt) || amt <= 0) {
+      return res.status(400).json({ error: 'Monto requerido para anticipo' });
+    }
+    const { rows: compRows } = await pool.query(
+      'SELECT max_advance_amount FROM companies WHERE id=$1',
+      [req.companyId]
+    );
+    const maxAmt = parseFloat(compRows[0]?.max_advance_amount || 0);
+    if (maxAmt > 0 && amt > maxAmt) {
+      return res.status(400).json({ error: `El monto supera el máximo permitido de $${maxAmt.toLocaleString('es-CL')}` });
+    }
+  }
+
   try {
     const { rows } = await pool.query(
-      `INSERT INTO requests (company_id, worker_id, type, details)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [req.companyId, req.workerId, type, details]
+      `INSERT INTO requests (company_id, worker_id, type, details, amount)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [req.companyId, req.workerId, type, details, type === 'anticipo' ? parseFloat(amount) : null]
     );
     res.status(201).json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Monto máximo de anticipo (trabajador consulta)
+router.get('/max-advance', verifyWorker, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT max_advance_amount FROM companies WHERE id=$1',
+      [req.companyId]
+    );
+    res.json({ maxAmount: parseFloat(rows[0]?.max_advance_amount || 0) });
   } catch (err) {
     res.status(500).json({ error: 'Error interno' });
   }
